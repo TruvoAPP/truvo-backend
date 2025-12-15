@@ -7,33 +7,56 @@ import { supabase } from '../../supabase/client.mjs';
 const router = express.Router();
 
 router.get('/', async (req, res) => {
-  const { barcode } = req.query;
+  try {
+    const { barcode } = req.query;
 
-  if (!barcode) return res.json({ error: 'Missing barcode' });
+    if (!barcode) {
+      return res.status(400).json({ error: 'Missing barcode' });
+    }
 
-  const { data } = await supabase
-    .from('products')
-    .select('*')
-    .eq('barcode', barcode)
-    .single();
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('barcode', barcode)
+      .maybeSingle(); // ✅ IMPORTANT: prevents server crash
 
-  if (!data) return res.json({ found: false });
+    if (error) {
+      console.error('Supabase error:', error);
+      return res.status(500).json({ error: 'database_error' });
+    }
 
-  const processing = scoreProcessing(data);
-  const diet = scoreDiet(data);
-  const macros = scoreMacros(data); // now informational only
+    if (!data) {
+      return res.json({ found: false });
+    }
 
-  // final score is diet score ONLY
-  const finalScore = diet.score;
+    // ✅ make sure downstream scorers never crash
+    const safeProduct = {
+      ...data,
+      ingredients: data.ingredients || '',
+      name: data.name || ''
+    };
 
-  return res.json({
-    found: true,
-    product: data,
-    processing,
-    diet,
-    macroProfile: macros, // 👈 renamed for clarity
-    score: finalScore
-  });
+    const processing = scoreProcessing(safeProduct);
+    const diet = scoreDiet(safeProduct);
+    const macros = scoreMacros(safeProduct); // informational only
+
+    return res.json({
+      found: true,
+      product: data,
+      processing,
+      diet,
+      macroProfile: macros,
+      score: diet.score // final score = diet score
+    });
+
+  } catch (err) {
+    // 🔴 this prevents Render from exiting with status 1
+    console.error('SCAN ROUTE CRASH:', err);
+    return res.status(500).json({
+      error: 'scan_failed',
+      message: err.message
+    });
+  }
 });
 
 export default router;
