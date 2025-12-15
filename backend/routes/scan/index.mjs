@@ -7,8 +7,12 @@ import { supabase } from '../../supabase/client.mjs';
 const router = express.Router();
 
 router.get('/', async (req, res) => {
+  const start = Date.now();
+
   try {
     const { barcode } = req.query;
+
+    console.log('🔍 Scan request:', barcode);
 
     if (!barcode) {
       return res.status(400).json({ error: 'Missing barcode' });
@@ -18,18 +22,23 @@ router.get('/', async (req, res) => {
       .from('products')
       .select('*')
       .eq('barcode', barcode)
-      .maybeSingle(); // ✅ IMPORTANT: prevents server crash
+      .maybeSingle(); // safe: no throw
 
     if (error) {
-      console.error('Supabase error:', error);
+      console.error('❌ Supabase error:', error);
       return res.status(500).json({ error: 'database_error' });
     }
 
     if (!data) {
-      return res.json({ found: false });
+      const duration = Date.now() - start;
+      console.log(`⚠️ Barcode not found: ${barcode} (${duration}ms)`);
+      return res.json({
+        found: false,
+        _meta: { durationMs: duration }
+      });
     }
 
-    // ✅ make sure downstream scorers never crash
+    // ensure scorers never crash
     const safeProduct = {
       ...data,
       ingredients: data.ingredients || '',
@@ -38,7 +47,10 @@ router.get('/', async (req, res) => {
 
     const processing = scoreProcessing(safeProduct);
     const diet = scoreDiet(safeProduct);
-    const macros = scoreMacros(safeProduct); // informational only
+    const macros = scoreMacros(safeProduct);
+
+    const duration = Date.now() - start;
+    console.log(`✅ Scan success: ${barcode} (${duration}ms)`);
 
     return res.json({
       found: true,
@@ -46,12 +58,14 @@ router.get('/', async (req, res) => {
       processing,
       diet,
       macroProfile: macros,
-      score: diet.score // final score = diet score
+      score: diet.score,
+      _meta: {
+        durationMs: duration
+      }
     });
 
   } catch (err) {
-    // 🔴 this prevents Render from exiting with status 1
-    console.error('SCAN ROUTE CRASH:', err);
+    console.error('💥 Scan route crash:', err);
     return res.status(500).json({
       error: 'scan_failed',
       message: err.message
