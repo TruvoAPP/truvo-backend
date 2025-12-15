@@ -1,15 +1,41 @@
-import processingRules from '../../rules/processingRules.json' with { type: 'json' };
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
 import { classifyIngredients } from '../../utils/classifyIngredients.mjs';
 
+// Resolve __dirname in ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load processing rules JSON (Node 22 compatible)
+const processingRulesPath = path.join(
+  __dirname,
+  '../../rules/processingRules.json'
+);
+
+const processingRules = JSON.parse(
+  fs.readFileSync(processingRulesPath, 'utf-8')
+);
+
 export const scoreProcessing = (product) => {
-  const classified = classifyIngredients(product.ingredients);
+  if (!product?.ingredients || !product?.name) {
+    return {
+      level: 'L4',
+      reason: 'missing_data',
+      classified: [],
+      ratio: 1
+    };
+  }
 
   const ingredientsText = product.ingredients.toLowerCase();
   const nameText = product.name.toLowerCase();
 
+  const classified = classifyIngredients(product.ingredients);
+
   // 1️⃣ Deep-fry rule
   const isDeepFried = processingRules.deepFryKeywords?.some(word =>
-    ingredientsText.includes(word)
+    ingredientsText.includes(word.toLowerCase())
   );
 
   if (isDeepFried) {
@@ -23,7 +49,7 @@ export const scoreProcessing = (product) => {
 
   // 2️⃣ Identity rule (L2 traditional)
   const isIdentityL2 = processingRules.identityL2?.some(word =>
-    nameText.includes(word)
+    nameText.includes(word.toLowerCase())
   );
 
   if (isIdentityL2) {
@@ -35,14 +61,12 @@ export const scoreProcessing = (product) => {
     };
   }
 
-  // 3️⃣ industrial checks
+  // 3️⃣ Industrial dominance logic
   const industrialCount = classified.filter(i => i.industrial).length;
   const total = classified.length;
   const ratio = total ? industrialCount / total : 0;
 
-  const hasAlways = industrialCount > 0;
-
-  // ⭐ NEW: first ingredient rule
+  // ⭐ First ingredient industrial rule
   const first = classified[0];
   const firstIsIndustrial = first?.industrial === true;
 
@@ -55,8 +79,11 @@ export const scoreProcessing = (product) => {
     };
   }
 
-  // Existing dominance logic
-  if (hasAlways || ratio >= processingRules.thresholdDominant) {
+  // Dominant industrial
+  if (
+    industrialCount > 0 ||
+    ratio >= processingRules.thresholdDominant
+  ) {
     return {
       level: 'L4',
       reason: 'dominant_industrial',
@@ -65,6 +92,7 @@ export const scoreProcessing = (product) => {
     };
   }
 
+  // Minor industrial presence
   if (ratio > 0) {
     return {
       level: 'L3',
@@ -74,7 +102,7 @@ export const scoreProcessing = (product) => {
     };
   }
 
-  // default real food
+  // Default: minimally processed
   return {
     level: 'L2',
     reason: 'natural_processing',
