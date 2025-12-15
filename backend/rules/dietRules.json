@@ -1,0 +1,47 @@
+{
+    "prohibited": [
+      "seed oil",
+      "vegetable oil",
+      "soybean oil",
+      "sunflower oil",
+      "canola oil",
+      "rapeseed oil",
+      "corn oil",
+      "cottonseed oil",
+      "hfcs",
+      "high fructose corn syrup",
+      "maltodextrin",
+      "aspartame",
+      "sucralose",
+      "acesulfame",
+      "red 40",
+      "yellow 5",
+      "yellow 6"
+    ],
+    "discouraged": [
+      "wheat",
+      "soy",
+      "rice flour",
+      "sugar",
+      "glucose",
+      "dextrose"
+    ],
+    "allowed": [
+      "beef",
+      "chicken",
+      "pork",
+      "fish",
+      "egg",
+      "milk",
+      "cream",
+      "butter",
+      "olive oil",
+      "avocado",
+      "coconut",
+      "salt",
+      "pepper",
+      "garlic",
+      "onion"
+    ]
+  }
+  

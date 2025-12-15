@@ -1,0 +1,29 @@
+{
+    "thresholdDominant": 0.4,
+    "deepFryKeywords": [
+      "fried",
+      "deep fried",
+      "deep-fried",
+      "tempura",
+      "crispy",
+      "nugget",
+      "breaded",
+      "fries",
+      "chips",
+      "kfc",
+      "mcdonald",
+      "burger king"
+    ],
+    "identityL2": [
+      "cheese",
+      "butter",
+      "yogurt",
+      "yoghurt",
+      "skyr",
+      "cream",
+      "olive oil",
+      "kefir",
+      "milk powder"
+    ]
+  }
+  
