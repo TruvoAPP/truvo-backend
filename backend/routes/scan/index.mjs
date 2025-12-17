@@ -22,23 +22,42 @@ router.get('/', async (req, res) => {
       .from('products')
       .select('*')
       .eq('barcode', barcode)
-      .maybeSingle(); // safe: no throw
+      .maybeSingle();
 
     if (error) {
       console.error('❌ Supabase error:', error);
       return res.status(500).json({ error: 'database_error' });
     }
 
+    // -----------------------------
+    // PRODUCT NOT FOUND
+    // -----------------------------
     if (!data) {
       const duration = Date.now() - start;
       console.log(`⚠️ Barcode not found: ${barcode} (${duration}ms)`);
+
+      // 🔒 LOG SCAN EVENT (not found)
+      try {
+        await supabase.from('scan_events').insert({
+          barcode,
+          found: false,
+          processing_level: null,
+          confidence: null,
+          duration_ms: duration
+        });
+      } catch (logErr) {
+        console.error('scan_events insert failed', logErr);
+      }
+
       return res.json({
         found: false,
         _meta: { durationMs: duration }
       });
     }
 
-    // ensure scorers never crash
+    // -----------------------------
+    // PRODUCT FOUND
+    // -----------------------------
     const safeProduct = {
       ...data,
       ingredients: data.ingredients || '',
@@ -51,6 +70,19 @@ router.get('/', async (req, res) => {
 
     const duration = Date.now() - start;
     console.log(`✅ Scan success: ${barcode} (${duration}ms)`);
+
+    // 🔒 LOG SCAN EVENT (found)
+    try {
+      await supabase.from('scan_events').insert({
+        barcode,
+        found: true,
+        processing_level: processing?.level ?? null,
+        confidence: processing?.confidence ?? null,
+        duration_ms: duration
+      });
+    } catch (logErr) {
+      console.error('scan_events insert failed', logErr);
+    }
 
     return res.json({
       found: true,
