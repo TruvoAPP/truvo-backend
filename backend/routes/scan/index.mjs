@@ -1,52 +1,56 @@
-import express from 'express';
-import { scoreDiet } from '../../services/scan/scoreDiet.mjs';
-import { scoreMacros } from '../../services/scan/scoreMacros.mjs';
-import { scoreProcessing } from '../../services/scan/scoreProcessing.mjs';
-import { supabase } from '../../supabase/client.mjs';
+import express from "express";
+import { scoreDiet } from "../../services/scan/scoreDiet.mjs";
+import { scoreMacros } from "../../services/scan/scoreMacros.mjs";
+import { scoreProcessing } from "../../services/scan/scoreProcessing.mjs";
+import { supabase } from "../../supabase/client.mjs";
 
 const router = express.Router();
 
-router.get('/', async (req, res) => {
+router.get("/", async (req, res) => {
   const start = Date.now();
 
   try {
     const { barcode } = req.query;
 
-    console.log('🔍 Scan request:', barcode);
+    console.log("🔍 Scan request:", barcode);
 
     if (!barcode) {
-      return res.status(400).json({ error: 'Missing barcode' });
+      return res.status(400).json({ error: "Missing barcode" });
     }
 
     const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .eq('barcode', barcode)
+      .from("products")
+      .select("*")
+      .eq("barcode", barcode)
       .maybeSingle();
 
     if (error) {
-      console.error('❌ Supabase error:', error);
-      return res.status(500).json({ error: 'database_error' });
+      console.error("❌ Supabase product lookup error:", error);
+      return res.status(500).json({ error: "database_error" });
     }
 
-    // -----------------------------
+    // =============================
     // PRODUCT NOT FOUND
-    // -----------------------------
+    // =============================
     if (!data) {
       const duration = Date.now() - start;
       console.log(`⚠️ Barcode not found: ${barcode} (${duration}ms)`);
 
-      // 🔒 LOG SCAN EVENT (not found)
-      try {
-        await supabase.from('scan_events').insert({
+      const { error: scanError } = await supabase
+        .from("scan_events")
+        .insert({
           barcode,
           found: false,
           processing_level: null,
           confidence: null,
-          duration_ms: duration
+          duration_ms: duration,
+          source: "scan"
         });
-      } catch (logErr) {
-        console.error('scan_events insert failed', logErr);
+
+      if (scanError) {
+        console.error("❌ scan_events insert failed (not found):", scanError);
+      } else {
+        console.log("📝 Scan event logged (not found):", barcode);
       }
 
       return res.json({
@@ -55,13 +59,13 @@ router.get('/', async (req, res) => {
       });
     }
 
-    // -----------------------------
+    // =============================
     // PRODUCT FOUND
-    // -----------------------------
+    // =============================
     const safeProduct = {
       ...data,
-      ingredients: data.ingredients || '',
-      name: data.name || ''
+      ingredients: data.ingredients || "",
+      name: data.name || ""
     };
 
     const processing = scoreProcessing(safeProduct);
@@ -71,17 +75,21 @@ router.get('/', async (req, res) => {
     const duration = Date.now() - start;
     console.log(`✅ Scan success: ${barcode} (${duration}ms)`);
 
-    // 🔒 LOG SCAN EVENT (found)
-    try {
-      await supabase.from('scan_events').insert({
+    const { error: scanError } = await supabase
+      .from("scan_events")
+      .insert({
         barcode,
         found: true,
         processing_level: processing?.level ?? null,
         confidence: processing?.confidence ?? null,
-        duration_ms: duration
+        duration_ms: duration,
+        source: "scan"
       });
-    } catch (logErr) {
-      console.error('scan_events insert failed', logErr);
+
+    if (scanError) {
+      console.error("❌ scan_events insert failed (found):", scanError);
+    } else {
+      console.log("📝 Scan event logged (found):", barcode);
     }
 
     return res.json({
@@ -97,9 +105,9 @@ router.get('/', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('💥 Scan route crash:', err);
+    console.error("💥 Scan route crash:", err);
     return res.status(500).json({
-      error: 'scan_failed',
+      error: "scan_failed",
       message: err.message
     });
   }
