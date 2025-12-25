@@ -19,6 +19,7 @@ router.get("/", async (req, res) => {
     const { barcode } = req.query;
 
     console.log("🔍 Scan request:", barcode);
+    console.log("🔥 USING OFF TABLE VERSION — DEPLOY CHECK");
 
     if (!barcode) {
       return res.status(400).json({ error: "Missing barcode" });
