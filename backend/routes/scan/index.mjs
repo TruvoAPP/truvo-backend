@@ -25,7 +25,7 @@ router.get("/", async (req, res) => {
       return res.status(400).json({ error: "Missing barcode" });
     }
 
-    // 🔥 CRITICAL FIX — query the real OFF table
+    // 🔥 Query OFF table
     const { data, error } = await supabase
       .from("products_off")
       .select("*")
@@ -42,21 +42,24 @@ router.get("/", async (req, res) => {
     ----------------------------- */
     if (!data) {
       const duration = Date.now() - start;
-
       console.log(`⚠️ Barcode not found: ${barcode} (${duration}ms)`);
 
-      // Non-blocking logging
-      supabase
-        .from("scan_events")
-        .insert({
-          barcode,
-          found: false,
-          processing_level: null,
-          confidence: null,
-          duration_ms: duration,
-          source: "scan",
-        })
-        .catch(() => {});
+      // 🧱 crash-proof async logging
+      (async () => {
+        try {
+          const { error } = await supabase.from("scan_events").insert({
+            barcode,
+            found: false,
+            processing_level: null,
+            confidence: null,
+            duration_ms: duration,
+            source: "scan",
+          });
+          if (error) console.error("❌ scan_events insert failed:", error);
+        } catch (e) {
+          console.error("❌ scan_events insert exception:", e);
+        }
+      })();
 
       return res.json({
         found: false,
@@ -78,21 +81,24 @@ router.get("/", async (req, res) => {
     const macros = scoreMacros(safeProduct);
 
     const duration = Date.now() - start;
-
     console.log(`✅ Scan success: ${barcode} (${duration}ms)`);
 
-    // Non-blocking logging
-    supabase
-      .from("scan_events")
-      .insert({
-        barcode,
-        found: true,
-        processing_level: processing?.level ?? null,
-        confidence: processing?.confidence ?? null,
-        duration_ms: duration,
-        source: "scan",
-      })
-      .catch(() => {});
+    // 🧱 crash-proof async logging
+    (async () => {
+      try {
+        const { error } = await supabase.from("scan_events").insert({
+          barcode,
+          found: true,
+          processing_level: processing?.level ?? null,
+          confidence: processing?.confidence ?? null,
+          duration_ms: duration,
+          source: "scan",
+        });
+        if (error) console.error("❌ scan_events insert failed:", error);
+      } catch (e) {
+        console.error("❌ scan_events insert exception:", e);
+      }
+    })();
 
     return res.json({
       found: true,
