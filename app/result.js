@@ -3,7 +3,7 @@ import React, { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
 // 🔒 SINGLE SOURCE OF TRUTH — HARD CODE FOR REAL DEVICE
-const API_BASE = "http://192.168.4.29:3000";
+const API_BASE = "https://truvo-backend.onrender.com";
 
 export default function ResultScreen() {
   const { barcode } = useLocalSearchParams();

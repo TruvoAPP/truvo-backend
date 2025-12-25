@@ -4,8 +4,14 @@ import { scoreMacros } from "../../services/scan/scoreMacros.mjs";
 import { scoreProcessing } from "../../services/scan/scoreProcessing.mjs";
 import { supabase } from "../../supabase/client.mjs";
 
+// ✅ Telemetry route
+import telemetryRoute from "../telemetry.mjs";
+
 const router = express.Router();
 
+/* -------------------------------------------------
+   SCAN ROUTE
+------------------------------------------------- */
 router.get("/", async (req, res) => {
   const start = Date.now();
 
@@ -18,8 +24,9 @@ router.get("/", async (req, res) => {
       return res.status(400).json({ error: "Missing barcode" });
     }
 
+    // 🔥 CRITICAL FIX — query the real OFF table
     const { data, error } = await supabase
-      .from("products")
+      .from("products_off")
       .select("*")
       .eq("barcode", barcode)
       .maybeSingle();
@@ -29,14 +36,16 @@ router.get("/", async (req, res) => {
       return res.status(500).json({ error: "database_error" });
     }
 
-    // =============================
-    // PRODUCT NOT FOUND
-    // =============================
+    /* -----------------------------
+       PRODUCT NOT FOUND
+    ----------------------------- */
     if (!data) {
       const duration = Date.now() - start;
+
       console.log(`⚠️ Barcode not found: ${barcode} (${duration}ms)`);
 
-      const { error: scanError } = await supabase
+      // Non-blocking logging
+      supabase
         .from("scan_events")
         .insert({
           barcode,
@@ -44,28 +53,23 @@ router.get("/", async (req, res) => {
           processing_level: null,
           confidence: null,
           duration_ms: duration,
-          source: "scan"
-        });
-
-      if (scanError) {
-        console.error("❌ scan_events insert failed (not found):", scanError);
-      } else {
-        console.log("📝 Scan event logged (not found):", barcode);
-      }
+          source: "scan",
+        })
+        .catch(() => {});
 
       return res.json({
         found: false,
-        _meta: { durationMs: duration }
+        _meta: { durationMs: duration },
       });
     }
 
-    // =============================
-    // PRODUCT FOUND
-    // =============================
+    /* -----------------------------
+       PRODUCT FOUND
+    ----------------------------- */
     const safeProduct = {
       ...data,
-      ingredients: data.ingredients || "",
-      name: data.name || ""
+      ingredients: data.ingredients_text || "",
+      name: data.product_name || "",
     };
 
     const processing = scoreProcessing(safeProduct);
@@ -73,9 +77,11 @@ router.get("/", async (req, res) => {
     const macros = scoreMacros(safeProduct);
 
     const duration = Date.now() - start;
+
     console.log(`✅ Scan success: ${barcode} (${duration}ms)`);
 
-    const { error: scanError } = await supabase
+    // Non-blocking logging
+    supabase
       .from("scan_events")
       .insert({
         barcode,
@@ -83,14 +89,9 @@ router.get("/", async (req, res) => {
         processing_level: processing?.level ?? null,
         confidence: processing?.confidence ?? null,
         duration_ms: duration,
-        source: "scan"
-      });
-
-    if (scanError) {
-      console.error("❌ scan_events insert failed (found):", scanError);
-    } else {
-      console.log("📝 Scan event logged (found):", barcode);
-    }
+        source: "scan",
+      })
+      .catch(() => {});
 
     return res.json({
       found: true,
@@ -99,18 +100,21 @@ router.get("/", async (req, res) => {
       diet,
       macroProfile: macros,
       score: diet.score,
-      _meta: {
-        durationMs: duration
-      }
+      _meta: { durationMs: duration },
     });
 
   } catch (err) {
     console.error("💥 Scan route crash:", err);
     return res.status(500).json({
       error: "scan_failed",
-      message: err.message
+      message: err.message,
     });
   }
 });
+
+/* -------------------------------------------------
+   TELEMETRY ROUTE
+------------------------------------------------- */
+router.use("/telemetry", telemetryRoute);
 
 export default router;

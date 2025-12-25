@@ -1,16 +1,24 @@
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
-import { Button, StyleSheet, Text, TextInput, View } from "react-native";
+import { Button, Platform, StyleSheet, Text, TextInput, View } from "react-native";
 
 export default function ManualScanScreen() {
   const router = useRouter();
   const [barcode, setBarcode] = useState("");
 
   const handleLookup = () => {
-    if (!barcode) return alert("Enter a barcode");
+    if (!barcode) {
+      alert("Enter a barcode");
+      return;
+    }
+
     router.push({
       pathname: "/result",
-      params: { barcode }
+      params: {
+        barcode,
+        platform: Platform.OS,
+        app_version: "dev", // update later via env
+      },
     });
   };
 
@@ -27,30 +35,40 @@ export default function ManualScanScreen() {
         keyboardType="numeric"
       />
 
-      {/* manual lookup */}
+      {/* Manual lookup */}
       <Button title="Lookup" onPress={handleLookup} />
 
-      {/* NEW button: open camera scanner */}
+      {/* Camera scanner */}
       <View style={{ marginTop: 20 }}>
         <Button
           title="Scan with Camera"
           onPress={() => router.push("/scanCamera")}
         />
       </View>
-
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, paddingTop: 80 },
-  title: { fontSize: 26, marginBottom: 10, fontWeight: "bold" },
-  subtitle: { fontSize: 16, opacity: 0.8 },
+  container: {
+    flex: 1,
+    padding: 20,
+    paddingTop: 80,
+  },
+  title: {
+    fontSize: 26,
+    marginBottom: 10,
+    fontWeight: "bold",
+  },
+  subtitle: {
+    fontSize: 16,
+    opacity: 0.8,
+  },
   input: {
     borderWidth: 1,
     borderColor: "#ccc",
     padding: 12,
     marginVertical: 20,
-    fontSize: 18
-  }
+    fontSize: 18,
+  },
 });
