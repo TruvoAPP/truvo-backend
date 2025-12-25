@@ -80,6 +80,19 @@ router.get("/", async (req, res) => {
     const diet = scoreDiet(safeProduct);
     const macros = scoreMacros(safeProduct);
 
+    // 🧬 Normalize diet compatibility flags
+    const defaultDietModel = {
+      keto: true,
+      paleo: true,
+      vegan: false,
+      carnivore: false,
+    };
+
+    const normalizedDiet = {
+      ...defaultDietModel,
+      ...diet,
+    };
+
     const duration = Date.now() - start;
     console.log(`✅ Scan success: ${barcode} (${duration}ms)`);
 
@@ -104,9 +117,9 @@ router.get("/", async (req, res) => {
       found: true,
       product: data,
       processing,
-      diet,
+      diet: normalizedDiet,
       macroProfile: macros,
-      score: diet.score,
+      score: normalizedDiet.score,
       _meta: { durationMs: duration },
     });
 
