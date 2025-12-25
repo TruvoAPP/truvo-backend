@@ -8,7 +8,7 @@ import { classifyIngredients } from '../../utils/classifyIngredients.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load processing rules JSON (Node 22 compatible)
+// Load processing rules
 const processingRulesPath = path.join(
   __dirname,
   '../../rules/processingRules.json'
@@ -19,94 +19,115 @@ const processingRules = JSON.parse(
 );
 
 export const scoreProcessing = (product) => {
-  if (!product?.ingredients || !product?.name) {
-    return {
-      level: 'L4',
-      reason: 'missing_data',
-      classified: [],
-      ratio: 1
-    };
-  }
+  try {
+    // 🛡 HARD GUARD — OFF data is often incomplete
+    if (!product?.ingredients || typeof product.ingredients !== 'string') {
+      return {
+        level: null,
+        confidence: 'LOW',
+        reason: 'missing_ingredients',
+        classified: [],
+        ratio: 0
+      };
+    }
 
-  const ingredientsText = product.ingredients.toLowerCase();
-  const nameText = product.name.toLowerCase();
+    const ingredientsText = product.ingredients.toLowerCase();
+    const nameText = (product.name || '').toLowerCase();
 
-  const classified = classifyIngredients(product.ingredients);
+    let classified = [];
 
-  // 1️⃣ Deep-fry rule
-  const isDeepFried = processingRules.deepFryKeywords?.some(word =>
-    ingredientsText.includes(word.toLowerCase())
-  );
+    try {
+      classified = classifyIngredients(product.ingredients);
+      if (!Array.isArray(classified)) classified = [];
+    } catch (e) {
+      console.warn('⚠️ classifyIngredients failed:', e.message);
+      classified = [];
+    }
 
-  if (isDeepFried) {
-    return {
-      level: 'L4',
-      reason: 'deep_fry_rule',
-      classified,
-      ratio: 1
-    };
-  }
+    // 1️⃣ Deep-fry rule
+    const isDeepFried = processingRules.deepFryKeywords?.some(word =>
+      ingredientsText.includes(word.toLowerCase())
+    );
 
-  // 2️⃣ Identity rule (L2 traditional)
-  const isIdentityL2 = processingRules.identityL2?.some(word =>
-    nameText.includes(word.toLowerCase())
-  );
+    if (isDeepFried) {
+      return {
+        level: 'L4',
+        confidence: 'HIGH',
+        reason: 'deep_fry_rule',
+        classified,
+        ratio: 1
+      };
+    }
 
-  if (isIdentityL2) {
+    // 2️⃣ Identity rule
+    const isIdentityL2 = processingRules.identityL2?.some(word =>
+      nameText.includes(word.toLowerCase())
+    );
+
+    if (isIdentityL2) {
+      return {
+        level: 'L2',
+        confidence: 'MEDIUM',
+        reason: 'identity_rule',
+        classified,
+        ratio: 0
+      };
+    }
+
+    // 3️⃣ Industrial dominance logic
+    const industrialCount = classified.filter(i => i?.industrial === true).length;
+    const total = classified.length;
+    const ratio = total ? industrialCount / total : 0;
+
+    const firstIsIndustrial = classified[0]?.industrial === true;
+
+    if (firstIsIndustrial) {
+      return {
+        level: 'L4',
+        confidence: 'HIGH',
+        reason: 'first_ingredient_industrial',
+        classified,
+        ratio
+      };
+    }
+
+    if (industrialCount > 0 || ratio >= processingRules.thresholdDominant) {
+      return {
+        level: 'L4',
+        confidence: 'MEDIUM',
+        reason: 'dominant_industrial',
+        classified,
+        ratio
+      };
+    }
+
+    if (ratio > 0) {
+      return {
+        level: 'L3',
+        confidence: 'MEDIUM',
+        reason: 'minor_industrial',
+        classified,
+        ratio
+      };
+    }
+
     return {
       level: 'L2',
-      reason: 'identity_rule',
+      confidence: 'HIGH',
+      reason: 'natural_processing',
       classified,
       ratio: 0
     };
-  }
 
-  // 3️⃣ Industrial dominance logic
-  const industrialCount = classified.filter(i => i.industrial).length;
-  const total = classified.length;
-  const ratio = total ? industrialCount / total : 0;
+  } catch (err) {
+    console.error('💥 scoreProcessing hard crash — returning safe fallback:', err);
 
-  // ⭐ First ingredient industrial rule
-  const first = classified[0];
-  const firstIsIndustrial = first?.industrial === true;
-
-  if (firstIsIndustrial) {
     return {
-      level: 'L4',
-      reason: 'first_ingredient_industrial',
-      classified,
-      ratio
+      level: null,
+      confidence: 'LOW',
+      reason: 'processing_error',
+      classified: [],
+      ratio: 0
     };
   }
-
-  // Dominant industrial
-  if (
-    industrialCount > 0 ||
-    ratio >= processingRules.thresholdDominant
-  ) {
-    return {
-      level: 'L4',
-      reason: 'dominant_industrial',
-      classified,
-      ratio
-    };
-  }
-
-  // Minor industrial presence
-  if (ratio > 0) {
-    return {
-      level: 'L3',
-      reason: 'minor_industrial',
-      classified,
-      ratio
-    };
-  }
-
-  // Default: minimally processed
-  return {
-    level: 'L2',
-    reason: 'natural_processing',
-    classified,
-    ratio: 0
-  };
 };
