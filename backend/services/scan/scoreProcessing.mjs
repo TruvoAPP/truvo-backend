@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-
 import { classifyIngredients } from '../../utils/classifyIngredients.mjs';
 
 // Resolve __dirname in ESM
@@ -9,17 +8,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Load processing rules
-const processingRulesPath = path.join(
-  __dirname,
-  '../../rules/processingRules.json'
-);
-
-const processingRules = JSON.parse(
-  fs.readFileSync(processingRulesPath, 'utf-8')
-);
+const processingRulesPath = path.join(__dirname, '../../rules/processingRules.json');
+const processingRules = JSON.parse(fs.readFileSync(processingRulesPath, 'utf-8'));
 
 /* -------------------------------------------------
-   Seed oil calorie dominance
+   Industrial Seed Oil Detection (Calorie Weighted)
 ------------------------------------------------- */
 
 const INDUSTRIAL_SEED_OILS = [
@@ -37,98 +30,84 @@ const INDUSTRIAL_SEED_OILS = [
   'vegetable oil',
 ];
 
-// Extract clean ingredient text from OFF junk format
+// 🔥 FIXED OFF INGREDIENT EXTRACTION
 function extractBestIngredientsText(raw) {
   if (!raw || typeof raw !== 'string') return '';
 
-  if (!raw.startsWith('[{')) return raw;
+  const matches = [...raw.matchAll(/'text'\s*:\s*'([^']+)'/g)];
+  if (matches.length === 0) return raw.toLowerCase();
 
-  try {
-    const json = raw
-      .replace(/'/g, '"')
-      .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":');
-
-    const arr = JSON.parse(json);
-    const en = arr.find(x => x.lang === 'en');
-    return (en?.text || arr[0]?.text || '').toLowerCase();
-  } catch {
-    return raw.toLowerCase();
-  }
+  const texts = matches.map(m => m[1].toLowerCase());
+  const en = texts.find(t => t.match(/potatoes|sunflower|salt|oil/));
+  return (en || texts.join(', ')).toLowerCase();
 }
 
 function parseDeclaredPercentages(text) {
   const matches = [...text.matchAll(/([a-z0-9\s\-]+)\s(\d+(?:\.\d+)?)\s?%/g)];
   return matches.map(m => ({
     name: m[1].trim(),
-    pct: Number(m[2]),
+    pct: Number(m[2])
   })).filter(x => x.pct >= 0 && x.pct <= 100);
 }
 
-function estimateIndustrialFatCalorieRatio(ingredientsText) {
-  const text = ingredientsText.toLowerCase();
-
-  if (!INDUSTRIAL_SEED_OILS.some(k => text.includes(k))) return 0;
+function estimateIndustrialFatCalorieRatio(text) {
+  if (!INDUSTRIAL_SEED_OILS.some(o => text.includes(o))) return 0;
 
   const declared = parseDeclaredPercentages(text);
-  const declaredTotal = declared.reduce((a, b) => a + b.pct, 0);
+  const declaredTotal = declared.reduce((s, x) => s + x.pct, 0);
   const remainder = Math.max(0, 100 - declaredTotal);
 
-  let seedOilPct = declared.find(d =>
-    INDUSTRIAL_SEED_OILS.some(k => d.name.includes(k))
-  )?.pct;
+  let seedOilPct = null;
+  for (const d of declared) {
+    if (INDUSTRIAL_SEED_OILS.some(o => d.name.includes(o))) {
+      seedOilPct = d.pct;
+      break;
+    }
+  }
 
-  if (seedOilPct == null) seedOilPct = remainder;
+  if (seedOilPct === null) seedOilPct = remainder;
   if (!seedOilPct || seedOilPct <= 0) return 0;
 
   const oilCalories = seedOilPct * 9;
   const otherCalories = (100 - seedOilPct) * 4;
-  const totalCalories = oilCalories + otherCalories;
-
-  return oilCalories / totalCalories;
+  return oilCalories / (oilCalories + otherCalories);
 }
 
 /* -------------------------------------------------
-   MAIN SCORING
+   MAIN SCORING ENGINE
 ------------------------------------------------- */
 
 export const scoreProcessing = (product) => {
   try {
-    if (!product?.ingredients || typeof product.ingredients !== 'string') {
+    if (!product?.ingredients) {
       return { level: null, confidence: 'LOW', reason: 'missing_ingredients', classified: [], ratio: 0 };
     }
 
     const ingredientsText = extractBestIngredientsText(product.ingredients);
     const nameText = (product.name || '').toLowerCase();
 
-    // 🔥 Seed-oil calorie override
-    const industrialFatCalorieRatio = estimateIndustrialFatCalorieRatio(ingredientsText);
+    // 🧨 SEED OIL DOMINANCE (Runs first)
+    const fatRatio = estimateIndustrialFatCalorieRatio(ingredientsText);
 
-    if (industrialFatCalorieRatio >= 0.10) {
-      return { level: 'L4', confidence: 'HIGH', reason: 'industrial_seed_oil_calorie_dominance', classified: [], ratio: 1 };
+    if (fatRatio >= 0.10) {
+      return { level: 'L4', confidence: 'HIGH', reason: 'industrial_seed_oil_calorie_dominance', classified: [], ratio: 1, fatRatio };
     }
 
-    if (industrialFatCalorieRatio >= 0.02) {
-      return { level: 'L3', confidence: 'MEDIUM', reason: 'industrial_seed_oil_present', classified: [], ratio: 0.5 };
+    if (fatRatio >= 0.02) {
+      return { level: 'L3', confidence: 'MEDIUM', reason: 'industrial_seed_oil_present', classified: [], ratio: 0.5, fatRatio };
     }
 
     let classified = [];
     try {
-      classified = classifyIngredients(ingredientsText);
-      if (!Array.isArray(classified)) classified = [];
+      classified = classifyIngredients(ingredientsText) || [];
     } catch {}
 
-    const isDeepFried = processingRules.deepFryKeywords?.some(word =>
-      ingredientsText.includes(word.toLowerCase())
-    );
-
+    const isDeepFried = processingRules.deepFryKeywords?.some(w => ingredientsText.includes(w));
     if (isDeepFried) {
       return { level: 'L4', confidence: 'HIGH', reason: 'deep_fry_rule', classified, ratio: 1 };
     }
 
-    const isIdentityL2 = processingRules.identityL2?.some(word =>
-      nameText.includes(word.toLowerCase())
-    );
-
+    const isIdentityL2 = processingRules.identityL2?.some(w => nameText.includes(w));
     if (isIdentityL2) {
       return { level: 'L2', confidence: 'MEDIUM', reason: 'identity_rule', classified, ratio: 0 };
     }
@@ -152,7 +131,7 @@ export const scoreProcessing = (product) => {
     return { level: 'L2', confidence: 'HIGH', reason: 'natural_processing', classified, ratio: 0 };
 
   } catch (err) {
-    console.error('💥 scoreProcessing crash:', err);
+    console.error('💥 Processing crash:', err);
     return { level: null, confidence: 'LOW', reason: 'processing_error', classified: [], ratio: 0 };
   }
 };
