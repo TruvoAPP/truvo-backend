@@ -1,5 +1,4 @@
 import express from "express";
-import fetch from "node-fetch";
 import { scoreDiet } from "../../services/scan/scoreDiet.mjs";
 import { scoreMacros } from "../../services/scan/scoreMacros.mjs";
 import { scoreProcessing } from "../../services/scan/scoreProcessing.mjs";
@@ -20,7 +19,7 @@ function normalizeBarcode(raw) {
 
 async function fetchFromOFF(barcode) {
   const url = `https://world.openfoodfacts.org/api/v2/product/${barcode}.json`;
-  const resp = await fetch(url);
+  const resp = await fetch(url);          // ← native fetch (Node 18+)
   if (!resp.ok) return null;
 
   const json = await resp.json();
