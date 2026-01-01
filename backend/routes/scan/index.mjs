@@ -4,7 +4,6 @@ import { scoreMacros } from "../../services/scan/scoreMacros.mjs";
 import { scoreProcessing } from "../../services/scan/scoreProcessing.mjs";
 import { supabase } from "../../supabase/client.mjs";
 
-// ✅ Telemetry route
 import telemetryRoute from "../telemetry.mjs";
 
 const router = express.Router();
@@ -13,13 +12,21 @@ const router = express.Router();
    Helpers
 ------------------------------------------------- */
 
+// 🔐 Canonical barcode normalization
 function normalizeBarcode(raw) {
-  return String(raw || "").replace(/[^0-9]/g, "");
+  const digits = String(raw || "").replace(/[^0-9]/g, "");
+
+  // Handle ULCP-style prefix: 01 + EAN13
+  if (digits.length === 14 && digits.startsWith("01")) {
+    return digits.slice(2);
+  }
+
+  return digits;
 }
 
 async function fetchFromOFF(barcode) {
   const url = `https://world.openfoodfacts.org/api/v2/product/${barcode}.json`;
-  const resp = await fetch(url);          // ← native fetch (Node 18+)
+  const resp = await fetch(url); // native fetch (Node 18+)
   if (!resp.ok) return null;
 
   const json = await resp.json();
@@ -122,21 +129,18 @@ router.get("/", async (req, res) => {
       const duration = Date.now() - start;
       console.log(`⚠️ Barcode not found anywhere: ${barcode} (${duration}ms)`);
 
-      (async () => {
-        try {
-          const { error } = await supabase.from("scan_events").insert({
-            barcode,
-            found: false,
-            processing_level: null,
-            confidence: null,
-            duration_ms: duration,
-            source: "scan",
-          });
-          if (error) console.error("❌ scan_events insert failed:", error);
-        } catch (e) {
-          console.error("❌ scan_events insert exception:", e);
-        }
-      })();
+      try {
+        await supabase.from("scan_events").insert({
+          barcode,
+          found: false,
+          processing_level: null,
+          confidence: null,
+          duration_ms: duration,
+          source: "scan",
+        });
+      } catch (e) {
+        console.error("❌ scan_events insert exception:", e);
+      }
 
       return res.json({
         found: false,
@@ -169,21 +173,18 @@ router.get("/", async (req, res) => {
     const duration = Date.now() - start;
     console.log(`✅ Scan success: ${barcode} (${duration}ms)`);
 
-    (async () => {
-      try {
-        const { error } = await supabase.from("scan_events").insert({
-          barcode,
-          found: true,
-          processing_level: processing?.level ?? null,
-          confidence: processing?.confidence ?? null,
-          duration_ms: duration,
-          source: "scan",
-        });
-        if (error) console.error("❌ scan_events insert failed:", error);
-      } catch (e) {
-        console.error("❌ scan_events insert exception:", e);
-      }
-    })();
+    try {
+      await supabase.from("scan_events").insert({
+        barcode,
+        found: true,
+        processing_level: processing?.level ?? null,
+        confidence: processing?.confidence ?? null,
+        duration_ms: duration,
+        source: "scan",
+      });
+    } catch (e) {
+      console.error("❌ scan_events insert exception:", e);
+    }
 
     return res.json({
       found: true,
