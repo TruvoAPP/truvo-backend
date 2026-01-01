@@ -72,8 +72,8 @@ router.get("/", async (req, res) => {
     ----------------------------- */
     const safeProduct = {
       ...data,
-      ingredients: data.ingredients_text || "",
       name: data.product_name || "",
+      ingredients: data.ingredients_text || "",
     };
 
     const processing = scoreProcessing(safeProduct);
@@ -115,7 +115,7 @@ router.get("/", async (req, res) => {
 
     return res.json({
       found: true,
-      product: data,
+      product: safeProduct,   // ✅ FIXED: return normalized product
       processing,
       diet: normalizedDiet,
       macroProfile: macros,
